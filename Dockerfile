@@ -25,6 +25,11 @@ RUN apk add --no-cache \
       ca-certificates \
       ttf-freefont
 
+# Use the existing node user (UID 1000)
+USER node
+ENV HOME=/home/node \
+	PATH=/home/node/.local/bin:$PATH
+
 # Tell Puppeteer to use the installed Chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
@@ -34,10 +39,10 @@ WORKDIR /app
 ENV NODE_ENV production
 
 # Copy only the necessary files for running the app
-COPY --from=build /app/package*.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/server.js ./server.js
+COPY --from=build --chown=node /app/package*.json ./
+COPY --from=build --chown=node /app/node_modules ./node_modules
+COPY --from=build --chown=node /app/dist ./dist
+COPY --from=build --chown=node /app/server.js ./server.js
 
 # Expose the port required by Hugging Face
 EXPOSE 7860

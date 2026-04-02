@@ -21,9 +21,14 @@ function addLog(msg) {
 
 async function startServer() {
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = process.env.PORT || 7860;
 
   app.use(express.json());
+
+  // Health check endpoint for Hugging Face
+  app.get("/health", (req, res) => {
+    res.status(200).send("OK");
+  });
 
   // API Routes
   app.post('/api/start', async (req, res) => {
