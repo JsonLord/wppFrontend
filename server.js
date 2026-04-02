@@ -19,15 +19,49 @@ function addLog(msg) {
   console.log(`[WPPConnect] ${msg}`);
 }
 
+// Middleware to check passkey
+function checkPasskey(req, res, next) {
+  const passkey = process.env.PASSKEY;
+  if (!passkey) {
+    // If no passkey is set in environment, allow access (for initial setup)
+    return next();
+  }
+
+  const providedPasskey = req.headers['x-passkey'] || req.headers['authorization'];
+  if (providedPasskey === passkey || providedPasskey === `Bearer ${passkey}`) {
+    return next();
+  }
+
+  res.status(401).json({ error: 'Unauthorized: Invalid passkey' });
+}
+
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT || 7860;
 
   app.use(express.json());
 
-  // Health check endpoint for Hugging Face
+  // Health check endpoint (unprotected)
   app.get("/health", (req, res) => {
     res.status(200).send("OK");
+  });
+
+  // Login endpoint
+  app.post('/api/login', (req, res) => {
+    const { passkey } = req.body;
+    const envPasskey = process.env.PASSKEY;
+
+    if (!envPasskey || passkey === envPasskey) {
+      res.json({ success: true });
+    } else {
+      res.status(401).json({ success: false, error: 'Invalid passkey' });
+    }
+  });
+
+  // Protect all other API routes
+  app.use('/api', (req, res, next) => {
+    if (req.path === '/login') return next();
+    checkPasskey(req, res, next);
   });
 
   // API Routes
@@ -59,6 +93,7 @@ async function startServer() {
         },
         headless: true,
         puppeteerOptions: {
+          executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
           args: [
             '--no-sandbox', 
             '--disable-setuid-sandbox',
@@ -113,7 +148,6 @@ async function startServer() {
 
     try {
       addLog(`Sending message to ${phone}...`);
-      // Format recipient ID
       let formattedRecipient = phone;
       if (!phone.includes('@')) {
         formattedRecipient = isGroup ? `${phone}@g.us` : `${phone}@c.us`;
@@ -171,7 +205,6 @@ async function startServer() {
 
     try {
       addLog(`Attempting to join group via link: ${link}`);
-      // Extract the invite code from the link
       let inviteCode = link;
       const match = link.match(/chat\.whatsapp\.com\/([^?]+)/);
       if (match && match[1]) {
