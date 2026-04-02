@@ -1,260 +1,351 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Send, Smartphone, Terminal, AlertCircle, CheckCircle2, QrCode } from 'lucide-react';
+import {
+  QrCode,
+  Send,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  Terminal,
+  Users,
+  MessageSquare,
+  Play,
+  Lock,
+  LogOut
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
-export default function App() {
+interface Group {
+  id: {
+    _serialized: string;
+    user: string;
+  };
+  name: string;
+}
+
+function App() {
+  const [passkey, setPasskey] = useState(localStorage.getItem('passkey') || '');
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const [loginError, setLoginError] = useState('');
+
   const [status, setStatus] = useState('DISCONNECTED');
   const [qrCode, setQrCode] = useState('');
   const [logs, setLogs] = useState<string[]>([]);
-  const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
+  const [phone, setPhone] = useState('');
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [activeTab, setActiveTab] = useState<'direct' | 'groups' | 'join'>('direct');
-  const [groups, setGroups] = useState<any[]>([]);
-  const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'direct' | 'group'>('direct');
   const [template, setTemplate] = useState<'normal' | 'poll' | 'date'>('normal');
   const [pollName, setPollName] = useState('');
-  const [pollOptions, setPollOptions] = useState(['', '']);
+  const [pollOptions, setPollOptions] = useState<string[]>(['', '']);
   const [links, setLinks] = useState('');
-  const [inviteLink, setInviteLink] = useState('');
-  const [isJoining, setIsJoining] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
+  const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
+    const headers = {
+      ...options.headers,
+      'x-passkey': passkey,
+      'Content-Type': 'application/json'
+    };
+    const response = await fetch(url, { ...options, headers });
+    if (response.status === 401) {
+      handleLogout();
+      throw new Error('Unauthorized');
+    }
+    return response;
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passkey })
+      });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem('passkey', passkey);
+        setIsLoggedIn(true);
+      } else {
+        setLoginError(data.error || 'Invalid passkey');
+      }
+    } catch (err) {
+      setLoginError('Failed to connect to server');
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('passkey');
+    setPasskey('');
+    setIsLoggedIn(false);
+  };
+
   useEffect(() => {
-    const fetchStatus = async () => {
+    const checkAuth = async () => {
+      const savedPasskey = localStorage.getItem('passkey');
+      if (savedPasskey) {
+        try {
+          const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ passkey: savedPasskey })
+          });
+          const data = await res.json();
+          if (data.success) {
+            setIsLoggedIn(true);
+          } else {
+            localStorage.removeItem('passkey');
+          }
+        } catch (err) {
+          console.error('Auth check failed', err);
+        }
+      }
+      setIsCheckingAuth(false);
+    };
+    checkAuth();
+  }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const interval = setInterval(async () => {
       try {
-        const res = await fetch('/api/status');
+        const res = await fetchWithAuth('/api/status');
         const data = await res.json();
         setStatus(data.status);
         setQrCode(data.qrCode);
         setLogs(data.logs);
-      } catch (err) {
-        console.error("Failed to fetch status", err);
+      } catch (error) {
+        console.error('Failed to fetch status', error);
       }
-    };
-
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 2000);
+    }, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isLoggedIn, passkey]);
 
   useEffect(() => {
-    if (status === 'CONNECTED') {
-      fetchGroups();
+    logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [logs]);
+
+  const startService = async () => {
+    try {
+      await fetchWithAuth('/api/start', { method: 'POST' });
+    } catch (error) {
+      console.error('Failed to start service', error);
     }
-  }, [status]);
+  };
 
   const fetchGroups = async () => {
     try {
-      const res = await fetch('/api/groups');
+      const res = await fetchWithAuth('/api/groups');
       const data = await res.json();
-      if (data.success) {
-        setGroups(data.groups);
-      }
-    } catch (err) {
-      console.error("Failed to fetch groups", err);
+      if (data.success) setGroups(data.groups);
+    } catch (error) {
+      console.error('Failed to fetch groups', error);
     }
   };
 
-  useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [logs]);
-
-  const handleStartSession = async () => {
-    try {
-      await fetch('/api/start', { method: 'POST' });
-    } catch (err) {
-      console.error("Failed to start session", err);
-    }
-  };
-
-  const handleJoinGroup = async (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteLink) return;
-
-    setIsJoining(true);
-    try {
-      await fetch('/api/join-group', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ link: inviteLink })
-      });
-      setInviteLink('');
-      fetchGroups(); // Refresh groups after joining
-    } catch (err) {
-      console.error("Failed to join group", err);
-    } finally {
-      setIsJoining(false);
-    }
-  };
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const recipient = activeTab === 'direct' ? phone : selectedGroup;
-    if (!recipient) return;
-
     setIsSending(true);
+
     try {
-      if (template === 'poll') {
-        await fetch('/api/send-poll', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            recipient,
-            pollName,
-            options: pollOptions.filter(o => o.trim() !== ''),
-            isGroup: activeTab === 'groups'
-          })
-        });
+      let endpoint = '/api/send';
+      let body: any = {
+        message: template === 'date' ? `${message}\n\n${links}` : message,
+        isGroup: activeTab === 'group'
+      };
+
+      if (activeTab === 'direct') {
+        body.phone = phone;
       } else {
-        let finalMessage = message;
-        if (template === 'date') {
-          finalMessage = `📅 Date: ${new Date().toLocaleDateString()}\n⏰ Time: ${new Date().toLocaleTimeString()}\n\n${message}`;
-        }
-
-        if (links.trim()) {
-          finalMessage += `\n\n🔗 Links:\n${links}`;
-        }
-
-        await fetch('/api/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            phone: recipient, 
-            message: finalMessage,
-            isGroup: activeTab === 'groups'
-          })
-        });
+        body.phone = selectedGroup;
       }
-      setMessage('');
-      setPollName('');
-      setPollOptions(['', '']);
-      setLinks('');
-    } catch (err) {
-      console.error("Failed to send message", err);
+
+      if (template === 'poll') {
+        endpoint = '/api/send-poll';
+        body = {
+          recipient: body.phone,
+          pollName,
+          options: pollOptions.filter(o => o.trim() !== ''),
+          isGroup: activeTab === 'group'
+        };
+      }
+
+      const res = await fetchWithAuth(endpoint, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+
+      const result = await res.json();
+      if (result.success) {
+        alert('Message sent successfully!');
+        if (template === 'poll') {
+          setPollName('');
+          setPollOptions(['', '']);
+        } else {
+          setMessage('');
+          setLinks('');
+        }
+      } else {
+        alert('Error: ' + result.error);
+      }
+    } catch (error) {
+      alert('Failed to send message');
     } finally {
       setIsSending(false);
     }
   };
 
-  const getStatusColor = () => {
-    switch (status) {
-      case 'CONNECTED': return 'text-green-600 bg-green-100 border-green-200';
-      case 'QR_CODE': return 'text-blue-600 bg-blue-100 border-blue-200';
-      case 'INITIALIZING': return 'text-yellow-600 bg-yellow-100 border-yellow-200';
-      case 'ERROR': return 'text-red-600 bg-red-100 border-red-200';
-      default: return 'text-gray-600 bg-gray-100 border-gray-200';
-    }
-  };
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-[#f3f4f6] text-gray-800 font-sans p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
-        
+    <div className="min-h-screen bg-[#f8f9fa] text-gray-900 font-sans selection:bg-orange-100 selection:text-orange-900">
+      <AnimatePresence>
+        {!isLoggedIn && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-gray-900/10 backdrop-blur-md flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 w-full max-w-md relative overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-orange-500 to-red-500" />
+              <div className="flex flex-col items-center mb-8 pt-4">
+                <div className="w-20 h-20 bg-orange-50 rounded-2xl flex items-center justify-center mb-6 rotate-3 shadow-inner">
+                  <Lock className="w-10 h-10 text-orange-600 -rotate-3" />
+                </div>
+                <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight text-center">Authentication Required</h1>
+                <p className="text-gray-500 text-center mt-3 font-medium">Please enter your UI Passkey to unlock the WPPConnect dashboard</p>
+              </div>
+
+              <form onSubmit={handleLogin} className="space-y-6">
+                <div>
+                  <input
+                    type="password"
+                    placeholder="UI Passkey..."
+                    value={passkey}
+                    onChange={(e) => setPasskey(e.target.value)}
+                    className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 outline-none transition-all text-center text-xl font-mono tracking-widest placeholder:tracking-normal placeholder:font-sans placeholder:text-base"
+                    autoFocus
+                  />
+                </div>
+                {loginError && (
+                  <p className="text-red-500 text-sm flex items-center justify-center gap-2 font-semibold bg-red-50 py-2 rounded-lg border border-red-100">
+                    <AlertCircle className="w-4 h-4" /> {loginError}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  className="w-full bg-gray-900 hover:bg-black text-white font-bold py-4 rounded-2xl transition-all shadow-xl hover:shadow-orange-200 hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  Unlock Dashboard
+                </button>
+              </form>
+              <div className="mt-8 pt-6 border-t border-gray-50 text-center">
+                <p className="text-xs text-gray-400 font-medium uppercase tracking-widest">Hugging Face Space Security</p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
-        <header className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <Smartphone className="w-6 h-6 text-orange-500" />
-              WPPConnect Interface
-            </h1>
-            <p className="text-gray-500 mt-1 text-sm">
-              A Gradio-inspired web wrapper for WhatsApp Web automation.
-            </p>
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-500 rounded-xl flex items-center justify-center shadow-lg shadow-orange-200">
+              <MessageSquare className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight text-gray-900">WPPConnect Portal</h1>
+              <div className="flex items-center gap-2 mt-1">
+                <div className={`w-2 h-2 rounded-full ${status === 'CONNECTED' ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">{status}</span>
+              </div>
+            </div>
           </div>
-          <div className={`px-4 py-2 rounded-full border text-sm font-medium flex items-center gap-2 ${getStatusColor()}`}>
-            {status === 'CONNECTED' && <CheckCircle2 className="w-4 h-4" />}
-            {status === 'QR_CODE' && <QrCode className="w-4 h-4" />}
-            {status === 'ERROR' && <AlertCircle className="w-4 h-4" />}
-            {status}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={startService}
+              disabled={status === 'CONNECTED' || status === 'INITIALIZING'}
+              className="flex items-center gap-2 px-4 py-2.5 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-200 disabled:text-gray-400 text-white text-sm font-semibold rounded-xl transition-all shadow-md shadow-orange-100"
+            >
+              {status === 'INITIALIZING' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+              {status === 'INITIALIZING' ? 'Starting...' : 'Connect WhatsApp'}
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-2.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+              title="Logout"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
           </div>
         </header>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          
-          {/* Left Column: Controls & Messaging */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Left Column: Messaging Control */}
           <div className="space-y-6">
-            {/* Session Control Panel */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h2 className="text-lg font-semibold mb-4 border-b pb-2">Session Control</h2>
-              <button
-                onClick={handleStartSession}
-                disabled={status === 'INITIALIZING' || status === 'CONNECTED'}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-              >
-                <Play className="w-5 h-5" />
-                {status === 'INITIALIZING' ? 'Initializing...' : status === 'CONNECTED' ? 'Session Active' : 'Start Session'}
-              </button>
-            </div>
-
-            {/* Messaging Panel */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 opacity-100 transition-opacity">
-              <div className="flex items-center justify-between mb-4 border-b pb-2">
-                <h2 className="text-lg font-semibold">Messaging</h2>
-                <div className="flex bg-gray-100 p-1 rounded-lg">
-                  <button
-                    onClick={() => setActiveTab('direct')}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${activeTab === 'direct' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    Direct
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('groups')}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${activeTab === 'groups' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    Groups
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('join')}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${activeTab === 'join' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    Join Group
-                  </button>
-                </div>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <div className="flex gap-1 p-1 bg-gray-50 rounded-xl mb-6">
+                <button
+                  onClick={() => setActiveTab('direct')}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'direct' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <MessageSquare className="w-4 h-4" /> Direct Message
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('group');
+                    if (groups.length === 0) fetchGroups();
+                  }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'group' ? 'bg-white shadow-sm text-orange-600' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  <Users className="w-4 h-4" /> Group Message
+                </button>
               </div>
 
-              {activeTab === 'join' ? (
-                <form onSubmit={handleJoinGroup} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Group Invite Link</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. https://chat.whatsapp.com/..."
-                      value={inviteLink}
-                      onChange={(e) => setInviteLink(e.target.value)}
-                      disabled={status !== 'CONNECTED'}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none disabled:bg-gray-100 disabled:text-gray-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Paste the WhatsApp group invite link to test connection and join.</p>
+              {status !== 'CONNECTED' ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
+                  <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center text-gray-300">
+                    <QrCode className="w-8 h-8" />
                   </div>
-                  <button
-                    type="submit"
-                    disabled={status !== 'CONNECTED' || isJoining || !inviteLink}
-                    className="w-full bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
-                  >
-                    {isJoining ? 'Testing Connection...' : 'Test Connection & Join'}
-                  </button>
-                </form>
-              ) : (
-              <form onSubmit={handleSendMessage} className="space-y-4">
-                {activeTab === 'direct' ? (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                    <h3 className="font-semibold text-gray-900">Not Connected</h3>
+                    <p className="text-sm text-gray-500 max-w-[200px] mx-auto mt-1">Please authenticate with WhatsApp to start messaging.</p>
+                  </div>
+                </div>
+              ) : (
+                <form onSubmit={handleSend} className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {activeTab === 'direct' ? (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">Recipient Phone</label>
                     <input
                       type="text"
                       placeholder="e.g. 5511999999999"
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
-                      disabled={status !== 'CONNECTED'}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none disabled:bg-gray-100 disabled:text-gray-500"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Include country code, no plus sign.</p>
                   </div>
                 ) : (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Select Group</label>
+                  <div className="space-y-4">
                     <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">Select Group</label>
                       <select
                         value={selectedGroup}
                         onChange={(e) => setSelectedGroup(e.target.value)}
@@ -445,3 +536,5 @@ export default function App() {
     </div>
   );
 }
+
+export default App;
