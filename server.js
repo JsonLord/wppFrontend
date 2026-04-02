@@ -23,7 +23,6 @@ function addLog(msg) {
 function checkPasskey(req, res, next) {
   const passkey = process.env.PASSKEY;
   if (!passkey) {
-    // If no passkey is set in environment, allow access (for initial setup)
     return next();
   }
 
@@ -44,6 +43,84 @@ async function startServer() {
   // Health check endpoint (unprotected)
   app.get("/health", (req, res) => {
     res.status(200).send("OK");
+  });
+
+  // API Documentation endpoint
+  app.get("/api-docs", (req, res) => {
+    const docs = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>WPPConnect API Documentation</title>
+        <style>
+          body { font-family: sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 20px; background: #f4f4f9; }
+          h1 { color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
+          h2 { color: #444; margin-top: 30px; }
+          code { background: #eee; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
+          pre { background: #2d2d2d; color: #ccc; padding: 15px; border-radius: 8px; overflow-x: auto; }
+          .endpoint { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
+          .method { font-weight: bold; color: #e67e22; }
+          .path { font-weight: bold; color: #2980b9; }
+        </style>
+      </head>
+      <body>
+        <h1>WPPConnect API Documentation</h1>
+        <p>All API requests (except <code>/api/login</code>) require authentication via the <code>x-passkey</code> header or <code>Authorization: Bearer &lt;passkey&gt;</code>.</p>
+        <p>Base URL: <code>https://auxteam-plandex-backup.hf.space</code></p>
+
+        <div class="endpoint">
+          <h2><span class="method">POST</span> <span class="path">/api/login</span></h2>
+          <p>Verify your passkey.</p>
+          <pre>Body: { "passkey": "your_passkey" }</pre>
+        </div>
+
+        <div class="endpoint">
+          <h2><span class="method">POST</span> <span class="path">/api/start</span></h2>
+          <p>Initialize the WhatsApp session and generate a QR code.</p>
+        </div>
+
+        <div class="endpoint">
+          <h2><span class="method">GET</span> <span class="path">/api/status</span></h2>
+          <p>Get current connection status, QR code (base64), and recent logs.</p>
+        </div>
+
+        <div class="endpoint">
+          <h2><span class="method">GET</span> <span class="path">/api/groups</span></h2>
+          <p>Retrieve all joined groups (requires CONNECTED status).</p>
+        </div>
+
+        <div class="endpoint">
+          <h2><span class="method">POST</span> <span class="path">/api/send</span></h2>
+          <p>Send a text message.</p>
+          <pre>Body: {
+  "phone": "recipient_id",
+  "message": "Hello world!",
+  "isGroup": false
+}</pre>
+        </div>
+
+        <div class="endpoint">
+          <h2><span class="method">POST</span> <span class="path">/api/send-poll</span></h2>
+          <p>Send a poll message.</p>
+          <pre>Body: {
+  "recipient": "recipient_id",
+  "pollName": "Favorite Color?",
+  "options": ["Red", "Blue", "Green"],
+  "selectableCount": 1,
+  "isGroup": false
+}</pre>
+        </div>
+
+        <div class="endpoint">
+          <h2><span class="method">POST</span> <span class="path">/api/join-group</span></h2>
+          <p>Join a group via invite link.</p>
+          <pre>Body: { "link": "https://chat.whatsapp.com/..." }</pre>
+        </div>
+
+      </body>
+      </html>
+    `;
+    res.send(docs);
   });
 
   // Login endpoint
