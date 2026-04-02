@@ -25,6 +25,7 @@ interface Group {
 function App() {
   const [passkey, setPasskey] = useState(localStorage.getItem('passkey') || '');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [loginError, setLoginError] = useState('');
 
   const [status, setStatus] = useState('DISCONNECTED');
@@ -48,7 +49,12 @@ function App() {
       'x-passkey': passkey,
       'Content-Type': 'application/json'
     };
-    return fetch(url, { ...options, headers });
+    const response = await fetch(url, { ...options, headers });
+    if (response.status === 401) {
+      handleLogout();
+      throw new Error('Unauthorized');
+    }
+    return response;
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -79,16 +85,28 @@ function App() {
   };
 
   useEffect(() => {
-    if (passkey) {
-      // Check if current passkey is still valid
-      fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passkey })
-      }).then(res => res.json()).then(data => {
-        if (data.success) setIsLoggedIn(true);
-      }).catch(() => {});
-    }
+    const checkAuth = async () => {
+      const savedPasskey = localStorage.getItem('passkey');
+      if (savedPasskey) {
+        try {
+          const res = await fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ passkey: savedPasskey })
+          });
+          const data = await res.json();
+          if (data.success) {
+            setIsLoggedIn(true);
+          } else {
+            localStorage.removeItem('passkey');
+          }
+        } catch (err) {
+          console.error('Auth check failed', err);
+        }
+      }
+      setIsCheckingAuth(false);
+    };
+    checkAuth();
   }, []);
 
   useEffect(() => {
@@ -181,6 +199,14 @@ function App() {
       setIsSending(false);
     }
   };
+
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
+      </div>
+    );
+  }
 
   if (!isLoggedIn) {
     return (

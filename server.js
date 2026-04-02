@@ -26,7 +26,7 @@ function checkPasskey(req, res, next) {
     return next();
   }
 
-  const providedPasskey = req.headers['x-passkey'] || req.headers['authorization'];
+  const providedPasskey = req.headers['x-passkey'] || req.headers['authorization'] || req.query.passkey;
   if (providedPasskey === passkey || providedPasskey === `Bearer ${passkey}`) {
     return next();
   }
@@ -39,6 +39,7 @@ async function startServer() {
   const PORT = process.env.PORT || 7860;
 
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
   // Health check endpoint (unprotected)
   app.get("/health", (req, res) => {
@@ -53,7 +54,7 @@ async function startServer() {
       <head>
         <title>WPPConnect API Documentation</title>
         <style>
-          body { font-family: sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 20px; background: #f4f4f9; }
+          body { font-family: sans-serif; line-height: 1.6; max-width: 900px; margin: 40px auto; padding: 20px; background: #f4f4f9; }
           h1 { color: #333; border-bottom: 2px solid #ddd; padding-bottom: 10px; }
           h2 { color: #444; margin-top: 30px; }
           code { background: #eee; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
@@ -61,11 +62,12 @@ async function startServer() {
           .endpoint { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
           .method { font-weight: bold; color: #e67e22; }
           .path { font-weight: bold; color: #2980b9; }
+          .param { color: #27ae60; font-weight: bold; }
         </style>
       </head>
       <body>
         <h1>WPPConnect API Documentation</h1>
-        <p>All API requests (except <code>/api/login</code>) require authentication via the <code>x-passkey</code> header or <code>Authorization: Bearer &lt;passkey&gt;</code>.</p>
+        <p>All API requests require authentication via the <code>x-passkey</code> header, <code>Authorization: Bearer &lt;passkey&gt;</code>, or <code>?passkey=...</code> query parameter.</p>
         <p>Base URL: <code>https://auxteam-plandex-backup.hf.space</code></p>
 
         <div class="endpoint">
@@ -75,48 +77,37 @@ async function startServer() {
         </div>
 
         <div class="endpoint">
-          <h2><span class="method">POST</span> <span class="path">/api/start</span></h2>
-          <p>Initialize the WhatsApp session and generate a QR code.</p>
+          <h2><span class="method">POST</span> <span class="path">/api/send-by-link</span></h2>
+          <p>Join a group via link and send a message/poll. Useful for automated triggers.</p>
+          <pre>Body: {
+  "link": "https://chat.whatsapp.com/...",
+  "message": "Optional text message",
+  "poll": {
+    "name": "Poll Name",
+    "options": ["Opt1", "Opt2"]
+  }
+}</pre>
+        </div>
+
+        <div class="endpoint">
+          <h2><span class="method">POST</span> <span class="path">/api/send-to-group-name</span></h2>
+          <p>Find a group by its name and send a message.</p>
+          <pre>Body: {
+  "groupName": "Team Alpha",
+  "message": "Hello Team!"
+}</pre>
         </div>
 
         <div class="endpoint">
           <h2><span class="method">GET</span> <span class="path">/api/status</span></h2>
-          <p>Get current connection status, QR code (base64), and recent logs.</p>
-        </div>
-
-        <div class="endpoint">
-          <h2><span class="method">GET</span> <span class="path">/api/groups</span></h2>
-          <p>Retrieve all joined groups (requires CONNECTED status).</p>
+          <p>Get connection status and QR code.</p>
         </div>
 
         <div class="endpoint">
           <h2><span class="method">POST</span> <span class="path">/api/send</span></h2>
-          <p>Send a text message.</p>
-          <pre>Body: {
-  "phone": "recipient_id",
-  "message": "Hello world!",
-  "isGroup": false
-}</pre>
+          <p>Standard send endpoint.</p>
+          <pre>Body: { "phone": "ID", "message": "Text", "isGroup": true/false }</pre>
         </div>
-
-        <div class="endpoint">
-          <h2><span class="method">POST</span> <span class="path">/api/send-poll</span></h2>
-          <p>Send a poll message.</p>
-          <pre>Body: {
-  "recipient": "recipient_id",
-  "pollName": "Favorite Color?",
-  "options": ["Red", "Blue", "Green"],
-  "selectableCount": 1,
-  "isGroup": false
-}</pre>
-        </div>
-
-        <div class="endpoint">
-          <h2><span class="method">POST</span> <span class="path">/api/join-group</span></h2>
-          <p>Join a group via invite link.</p>
-          <pre>Body: { "link": "https://chat.whatsapp.com/..." }</pre>
-        </div>
-
       </body>
       </html>
     `;
@@ -127,7 +118,6 @@ async function startServer() {
   app.post('/api/login', (req, res) => {
     const { passkey } = req.body;
     const envPasskey = process.env.PASSKEY;
-
     if (!envPasskey || passkey === envPasskey) {
       res.json({ success: true });
     } else {
@@ -146,7 +136,6 @@ async function startServer() {
     if (currentStatus === 'INITIALIZING' || currentStatus === 'CONNECTED') {
       return res.json({ success: true, status: currentStatus });
     }
-    
     currentStatus = 'INITIALIZING';
     qrCodeBase64 = '';
     addLog('Starting WPPConnect session...');
@@ -155,166 +144,101 @@ async function startServer() {
     try {
       wppClient = await wppconnect.create({
         session: 'gradio-session',
-        catchQR: (base64Qr, asciiQR) => {
+        catchQR: (base64Qr) => {
           currentStatus = 'QR_CODE';
           qrCodeBase64 = base64Qr;
-          addLog('QR Code generated. Waiting for scan...');
         },
-        statusFind: (statusSession, session) => {
-          addLog(`Session Status: ${statusSession}`);
+        statusFind: (statusSession) => {
           if (statusSession === 'isLogged' || statusSession === 'inChat') {
             currentStatus = 'CONNECTED';
             qrCodeBase64 = '';
-            addLog('Successfully connected to WhatsApp!');
           }
         },
         headless: true,
         puppeteerOptions: {
           executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
-          args: [
-            '--no-sandbox', 
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--disable-gpu'
-          ]
+          args: ['--no-sandbox', '--disable-setuid-sandbox']
         }
       });
-      
       currentStatus = 'CONNECTED';
       addLog('WPPConnect client is ready.');
     } catch (error) {
       currentStatus = 'ERROR';
-      addLog(`Error initializing WPPConnect: ${error.message}`);
-      console.error(error);
+      addLog(`Error: ${error.message}`);
     }
   });
 
   app.get('/api/status', (req, res) => {
-    res.json({ 
-      status: currentStatus, 
-      qrCode: qrCodeBase64, 
-      logs 
-    });
+    res.json({ status: currentStatus, qrCode: qrCodeBase64, logs });
   });
 
   app.get('/api/groups', async (req, res) => {
-    if (!wppClient || currentStatus !== 'CONNECTED') {
-      return res.status(400).json({ error: 'WhatsApp client is not connected.' });
-    }
+    if (!wppClient || currentStatus !== 'CONNECTED') return res.status(400).json({ error: 'Not connected' });
     try {
       const groups = await wppClient.getAllGroups();
       res.json({ success: true, groups });
     } catch (error) {
-      addLog(`Failed to fetch groups: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
   });
 
   app.post('/api/send', async (req, res) => {
-    if (!wppClient || currentStatus !== 'CONNECTED') {
-      return res.status(400).json({ error: 'WhatsApp client is not connected.' });
-    }
-    
+    if (!wppClient || currentStatus !== 'CONNECTED') return res.status(400).json({ error: 'Not connected' });
     const { phone, message, isGroup } = req.body;
-    if (!phone || !message) {
-      return res.status(400).json({ error: 'Recipient and message are required.' });
-    }
-
     try {
-      addLog(`Sending message to ${phone}...`);
-      let formattedRecipient = phone;
-      if (!phone.includes('@')) {
-        formattedRecipient = isGroup ? `${phone}@g.us` : `${phone}@c.us`;
-      }
-      
-      const result = await wppClient.sendText(formattedRecipient, message);
-      addLog(`Message successfully sent to ${phone}`);
+      let recipient = phone;
+      if (!phone.includes('@')) recipient = isGroup ? `${phone}@g.us` : `${phone}@c.us`;
+      const result = await wppClient.sendText(recipient, message);
       res.json({ success: true, result });
     } catch (error) {
-      addLog(`Failed to send message: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.post('/api/send-poll', async (req, res) => {
-    if (!wppClient || currentStatus !== 'CONNECTED') {
-      return res.status(400).json({ error: 'WhatsApp client is not connected.' });
-    }
-
-    const { recipient, pollName, options, selectableCount, isGroup } = req.body;
-    if (!recipient || !pollName || !options || !Array.isArray(options)) {
-      return res.status(400).json({ error: 'Recipient, poll name, and options are required.' });
-    }
-
+  app.post('/api/send-to-group-name', async (req, res) => {
+    if (!wppClient || currentStatus !== 'CONNECTED') return res.status(400).json({ error: 'Not connected' });
+    const { groupName, message } = req.body;
     try {
-      addLog(`Sending poll to ${recipient}...`);
-      let formattedRecipient = recipient;
-      if (!recipient.includes('@')) {
-        formattedRecipient = isGroup ? `${recipient}@g.us` : `${recipient}@c.us`;
-      }
-
-      const result = await wppClient.sendPollMessage(
-        formattedRecipient,
-        pollName,
-        options,
-        { selectableCount: selectableCount || 1 }
-      );
-      addLog(`Poll successfully sent to ${recipient}`);
+      const groups = await wppClient.getAllGroups();
+      const group = groups.find(g => g.name === groupName || g.contact?.name === groupName);
+      if (!group) return res.status(404).json({ error: 'Group not found' });
+      const result = await wppClient.sendText(group.id._serialized, message);
       res.json({ success: true, result });
     } catch (error) {
-      addLog(`Failed to send poll: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.post('/api/join-group', async (req, res) => {
-    if (!wppClient || currentStatus !== 'CONNECTED') {
-      return res.status(400).json({ error: 'WhatsApp client is not connected.' });
-    }
-
-    const { link } = req.body;
-    if (!link) {
-      return res.status(400).json({ error: 'Group invite link is required.' });
-    }
-
+  app.post('/api/send-by-link', async (req, res) => {
+    if (!wppClient || currentStatus !== 'CONNECTED') return res.status(400).json({ error: 'Not connected' });
+    const { link, message, poll } = req.body;
     try {
-      addLog(`Attempting to join group via link: ${link}`);
-      let inviteCode = link;
-      const match = link.match(/chat\.whatsapp\.com\/([^?]+)/);
-      if (match && match[1]) {
-        inviteCode = match[1];
-      }
+      let inviteCode = link.match(/chat\.whatsapp\.com\/([^?]+)/)?.[1] || link;
+      const groupInfo = await wppClient.joinGroup(inviteCode);
+      const groupId = typeof groupInfo === 'string' ? groupInfo : groupInfo.id;
 
-      const result = await wppClient.joinGroup(inviteCode);
-      addLog(`Successfully joined group!`);
-      res.json({ success: true, result });
+      let result;
+      if (poll) {
+        result = await wppClient.sendPollMessage(groupId, poll.name, poll.options, { selectableCount: 1 });
+      } else {
+        result = await wppClient.sendText(groupId, message);
+      }
+      res.json({ success: true, groupId, result });
     } catch (error) {
-      addLog(`Failed to join group: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
+    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    app.get('*', (req, res) => res.sendFile(path.join(distPath, 'index.html')));
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+  app.listen(PORT, "0.0.0.0", () => console.log(`Server running on port ${PORT}`));
 }
 
 startServer();
