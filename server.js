@@ -71,9 +71,18 @@ async function startServer() {
         <p>Base URL: <code>https://auxteam-plandex-backup.hf.space</code></p>
 
         <div class="endpoint">
-          <h2><span class="method">POST</span> <span class="path">/api/login</span></h2>
-          <p>Verify your passkey.</p>
-          <pre>Body: { "passkey": "your_passkey" }</pre>
+          <h2><span class="method">POST</span> <span class="path">/api/send-to-group-name</span></h2>
+          <p>Find a group by its name and send a message, poll, or link.</p>
+          <pre>Body: {
+  "groupName": "Team Alpha",
+  "message": "Hello Team!",
+  "date": "2023-10-27", (optional, will be prepended to message)
+  "links": "https://example.com", (optional, will be appended to message)
+  "poll": { (optional)
+    "name": "Lunch Choice?",
+    "options": ["Pizza", "Burgers"]
+  }
+}</pre>
         </div>
 
         <div class="endpoint">
@@ -86,15 +95,6 @@ async function startServer() {
     "name": "Poll Name",
     "options": ["Opt1", "Opt2"]
   }
-}</pre>
-        </div>
-
-        <div class="endpoint">
-          <h2><span class="method">POST</span> <span class="path">/api/send-to-group-name</span></h2>
-          <p>Find a group by its name and send a message.</p>
-          <pre>Body: {
-  "groupName": "Team Alpha",
-  "message": "Hello Team!"
 }</pre>
         </div>
 
@@ -197,12 +197,23 @@ async function startServer() {
 
   app.post('/api/send-to-group-name', async (req, res) => {
     if (!wppClient || currentStatus !== 'CONNECTED') return res.status(400).json({ error: 'Not connected' });
-    const { groupName, message } = req.body;
+    const { groupName, message, poll, date, links } = req.body;
     try {
       const groups = await wppClient.getAllGroups();
       const group = groups.find(g => g.name === groupName || g.contact?.name === groupName);
       if (!group) return res.status(404).json({ error: 'Group not found' });
-      const result = await wppClient.sendText(group.id._serialized, message);
+
+      const groupId = group.id._serialized;
+      let finalMessage = message || '';
+      if (date) finalMessage = `[${date}]\n${finalMessage}`;
+      if (links) finalMessage = `${finalMessage}\n\n${links}`;
+
+      let result;
+      if (poll) {
+        result = await wppClient.sendPollMessage(groupId, poll.name, poll.options, { selectableCount: 1 });
+      } else {
+        result = await wppClient.sendText(groupId, finalMessage);
+      }
       res.json({ success: true, result });
     } catch (error) {
       res.status(500).json({ error: error.message });
