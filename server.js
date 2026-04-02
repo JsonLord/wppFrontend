@@ -2,13 +2,17 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import * as wppconnect from '@wppconnect-team/wppconnect';
 import path from "path";
+import { fileURLToPath } from 'url';
 
-let wppClient: wppconnect.Whatsapp | null = null;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+let wppClient = null;
 let currentStatus = 'DISCONNECTED';
 let qrCodeBase64 = '';
-let logs: string[] = [];
+let logs = [];
 
-function addLog(msg: string) {
+function addLog(msg) {
   const timestamp = new Date().toLocaleTimeString();
   logs.push(`[${timestamp}] ${msg}`);
   if (logs.length > 100) logs.shift();
@@ -17,7 +21,7 @@ function addLog(msg: string) {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT || 3000;
 
   app.use(express.json());
 
@@ -64,7 +68,7 @@ async function startServer() {
       
       currentStatus = 'CONNECTED';
       addLog('WPPConnect client is ready.');
-    } catch (error: any) {
+    } catch (error) {
       currentStatus = 'ERROR';
       addLog(`Error initializing WPPConnect: ${error.message}`);
       console.error(error);
@@ -86,7 +90,7 @@ async function startServer() {
     try {
       const groups = await wppClient.getAllGroups();
       res.json({ success: true, groups });
-    } catch (error: any) {
+    } catch (error) {
       addLog(`Failed to fetch groups: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
@@ -113,7 +117,7 @@ async function startServer() {
       const result = await wppClient.sendText(formattedRecipient, message);
       addLog(`Message successfully sent to ${phone}`);
       res.json({ success: true, result });
-    } catch (error: any) {
+    } catch (error) {
       addLog(`Failed to send message: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
@@ -144,7 +148,7 @@ async function startServer() {
       );
       addLog(`Poll successfully sent to ${recipient}`);
       res.json({ success: true, result });
-    } catch (error: any) {
+    } catch (error) {
       addLog(`Failed to send poll: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
@@ -163,7 +167,6 @@ async function startServer() {
     try {
       addLog(`Attempting to join group via link: ${link}`);
       // Extract the invite code from the link
-      // Example: https://chat.whatsapp.com/EIthl6StDhs3uqkmEFTebE?mode=gi_t
       let inviteCode = link;
       const match = link.match(/chat\.whatsapp\.com\/([^?]+)/);
       if (match && match[1]) {
@@ -173,7 +176,7 @@ async function startServer() {
       const result = await wppClient.joinGroup(inviteCode);
       addLog(`Successfully joined group!`);
       res.json({ success: true, result });
-    } catch (error: any) {
+    } catch (error) {
       addLog(`Failed to join group: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
@@ -187,7 +190,7 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
+    const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
@@ -195,7 +198,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
   });
 }
 
