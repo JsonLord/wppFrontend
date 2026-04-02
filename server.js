@@ -68,7 +68,7 @@ async function startServer() {
       <body>
         <h1>WPPConnect API Documentation</h1>
         <p>All API requests require authentication via the <code>x-passkey</code> header, <code>Authorization: Bearer &lt;passkey&gt;</code>, or <code>?passkey=...</code> query parameter.</p>
-        <p>Base URL: <code>https://auxteam-plandex-backup.hf.space</code></p>
+        <p>Base URL: <code>https://leon4gr45-browser-use-webui.hf.space</code></p>
 
         <div class="endpoint">
           <h2><span class="method">POST</span> <span class="path">/api/send-to-group-name</span></h2>

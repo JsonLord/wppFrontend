@@ -15,4 +15,4 @@ jobs:
       - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push https://AUXteam:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/AUXteam/Plandex_backup main
+        run: git push https://Leon4gr45:${{ secrets.HF_TOKEN }}@huggingface.co/spaces/Leon4gr45/browser-use-webui main
