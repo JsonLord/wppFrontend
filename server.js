@@ -153,7 +153,7 @@ async function startServer() {
         headless: true,
         puppeteerOptions: {
           executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
-          args: ['--no-sandbox', '--disable-setuid-sandbox']
+          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-zygote', '--single-process', '--disable-extensions']
         }
       });
       currentStatus = 'CONNECTED';
