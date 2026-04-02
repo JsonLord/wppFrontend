@@ -25,7 +25,10 @@ RUN apk add --no-cache \
       ca-certificates \
       ttf-freefont
 
+
+RUN mkdir -p /app/tokens && chown -R node:node /app
 # Use the existing node user (UID 1000)
+RUN chown -R node:node /app
 USER node
 ENV HOME=/home/node \
 	PATH=/home/node/.local/bin:$PATH

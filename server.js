@@ -1,3 +1,4 @@
+import fs from "fs";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import * as wppconnect from '@wppconnect-team/wppconnect';
@@ -32,6 +33,27 @@ function checkPasskey(req, res, next) {
   }
 
   res.status(401).json({ error: 'Unauthorized: Invalid passkey' });
+}
+
+
+async function cleanupSession() {
+  addLog('Performing proactive session cleanup...');
+  try {
+    const tokenPath = path.join(__dirname, 'tokens', 'gradio-session');
+    if (fs.existsSync(tokenPath)) {
+      // Try to remove lock file specifically first if it exists
+      const lockPath = path.join(tokenPath, 'SingletonLock');
+      if (fs.existsSync(lockPath)) {
+        try { fs.unlinkSync(lockPath); addLog('Removed SingletonLock'); } catch (e) {}
+      }
+
+      // Then remove the whole dir
+      fs.rmSync(tokenPath, { recursive: true, force: true });
+      addLog('Session tokens directory cleared.');
+    }
+  } catch (e) {
+    addLog(`Cleanup error: ${e.message}`);
+  }
 }
 
 async function startServer() {
@@ -129,17 +151,57 @@ async function startServer() {
 
   // API Routes
   app.post('/api/start', async (req, res) => {
-    if (currentStatus === 'INITIALIZING' || currentStatus === 'CONNECTED') {
+    if (currentStatus === 'CONNECTED') {
       return res.json({ success: true, status: currentStatus });
     }
+
+    // Always cleanup if we are not connected and trying to start
+    await cleanupSession();
+
     currentStatus = 'INITIALIZING';
     qrCodeBase64 = '';
     addLog('Starting WPPConnect session...');
     res.json({ success: true });
 
+    const commonArgs = [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-zygote',
+      '--single-process',
+      '--disable-extensions',
+      '--disable-features=IsolateOrigins,site-per-process',
+      '--dns-prefetch-disable',
+      '--no-default-browser-check',
+      '--disable-site-isolation-trials',
+      '--disable-web-security',
+      '--disable-features=AudioServiceOutOfProcess',
+      '--disable-background-networking',
+      '--enable-features=NetworkService,NetworkServiceInProcess',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-breakpad',
+      '--disable-client-side-phishing-detection',
+      '--disable-component-extensions-with-background-pages',
+      '--disable-default-apps',
+      '--disable-hang-monitor',
+      '--disable-ipc-flooding-protection',
+      '--disable-notifications',
+      '--disable-prompt-on-repost',
+      '--disable-renderer-backgrounding',
+      '--disable-sync',
+      '--force-color-profile=srgb',
+      '--metrics-recording-only',
+      '--no-first-run',
+      '--password-store=basic',
+      '--use-mock-keychain'
+    ];
+
     try {
       wppClient = await wppconnect.create({
         session: 'gradio-session',
+        browserArgs: commonArgs,
         catchQR: (base64Qr) => {
           currentStatus = 'QR_CODE';
           qrCodeBase64 = base64Qr;
@@ -153,14 +215,22 @@ async function startServer() {
         headless: true,
         puppeteerOptions: {
           executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || null,
-          args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-zygote', '--single-process', '--disable-extensions']
+          args: commonArgs
         }
       });
       currentStatus = 'CONNECTED';
       addLog('WPPConnect client is ready.');
     } catch (error) {
-      currentStatus = 'ERROR';
       addLog(`Error: ${error.message}`);
+      currentStatus = 'ERROR';
+
+      // Always attempt cleanup on initialization error
+      await cleanupSession();
+
+      if (wppClient) {
+        try { await wppClient.close(); } catch (e) {}
+      }
+      wppClient = null;
     }
   });
 
