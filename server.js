@@ -23,7 +23,7 @@ function addLog(msg) {
 function checkPasskey(req, res, next) {
   const passkey = process.env.PASSKEY;
   if (!passkey) {
-    return next();
+    return res.status(500).json({ error: 'Server configuration error: PASSKEY not set' });
   }
 
   const providedPasskey = req.headers['x-passkey'] || req.headers['authorization'] || req.query.passkey;
@@ -62,7 +62,6 @@ async function startServer() {
           .endpoint { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; }
           .method { font-weight: bold; color: #e67e22; }
           .path { font-weight: bold; color: #2980b9; }
-          .param { color: #27ae60; font-weight: bold; }
         </style>
       </head>
       <body>
@@ -76,8 +75,8 @@ async function startServer() {
           <pre>Body: {
   "groupName": "Team Alpha",
   "message": "Hello Team!",
-  "date": "2023-10-27", (optional, will be prepended to message)
-  "links": "https://example.com", (optional, will be appended to message)
+  "date": "2023-10-27", (optional)
+  "links": "https://example.com", (optional)
   "poll": { (optional)
     "name": "Lunch Choice?",
     "options": ["Pizza", "Burgers"]
@@ -87,15 +86,7 @@ async function startServer() {
 
         <div class="endpoint">
           <h2><span class="method">POST</span> <span class="path">/api/send-by-link</span></h2>
-          <p>Join a group via link and send a message/poll. Useful for automated triggers.</p>
-          <pre>Body: {
-  "link": "https://chat.whatsapp.com/...",
-  "message": "Optional text message",
-  "poll": {
-    "name": "Poll Name",
-    "options": ["Opt1", "Opt2"]
-  }
-}</pre>
+          <p>Join a group via link and send a message/poll.</p>
         </div>
 
         <div class="endpoint">
@@ -118,7 +109,12 @@ async function startServer() {
   app.post('/api/login', (req, res) => {
     const { passkey } = req.body;
     const envPasskey = process.env.PASSKEY;
-    if (!envPasskey || passkey === envPasskey) {
+
+    if (!envPasskey) {
+      return res.status(500).json({ success: false, error: 'PASSKEY not configured on server' });
+    }
+
+    if (passkey === envPasskey) {
       res.json({ success: true });
     } else {
       res.status(401).json({ success: false, error: 'Invalid passkey' });

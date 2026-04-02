@@ -71,7 +71,7 @@ function App() {
         localStorage.setItem('passkey', passkey);
         setIsLoggedIn(true);
       } else {
-        setLoginError('Invalid passkey');
+        setLoginError(data.error || 'Invalid passkey');
       }
     } catch (err) {
       setLoginError('Failed to connect to server');
@@ -208,52 +208,61 @@ function App() {
     );
   }
 
-  if (!isLoggedIn) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white p-8 rounded-2xl shadow-xl border border-gray-200 w-full max-w-md"
-        >
-          <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
-              <Lock className="w-8 h-8 text-orange-600" />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">Dashboard Access</h1>
-            <p className="text-gray-500 text-center mt-2">Enter your passkey to access the WPPConnect dashboard</p>
-          </div>
-
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <input
-                type="password"
-                placeholder="Enter passkey..."
-                value={passkey}
-                onChange={(e) => setPasskey(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 outline-none transition-all"
-                autoFocus
-              />
-            </div>
-            {loginError && (
-              <p className="text-red-500 text-sm flex items-center gap-1">
-                <AlertCircle className="w-4 h-4" /> {loginError}
-              </p>
-            )}
-            <button
-              type="submit"
-              className="w-full bg-gray-900 hover:bg-gray-800 text-white font-semibold py-3 rounded-xl transition-colors shadow-lg"
-            >
-              Unlock Dashboard
-            </button>
-          </form>
-        </motion.div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#f8f9fa] text-gray-900 font-sans selection:bg-orange-100 selection:text-orange-900">
+      <AnimatePresence>
+        {!isLoggedIn && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-gray-900/10 backdrop-blur-md flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="bg-white p-8 rounded-3xl shadow-2xl border border-gray-100 w-full max-w-md relative overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-orange-500 to-red-500" />
+              <div className="flex flex-col items-center mb-8 pt-4">
+                <div className="w-20 h-20 bg-orange-50 rounded-2xl flex items-center justify-center mb-6 rotate-3 shadow-inner">
+                  <Lock className="w-10 h-10 text-orange-600 -rotate-3" />
+                </div>
+                <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight text-center">Authentication Required</h1>
+                <p className="text-gray-500 text-center mt-3 font-medium">Please enter your UI Passkey to unlock the WPPConnect dashboard</p>
+              </div>
+
+              <form onSubmit={handleLogin} className="space-y-6">
+                <div>
+                  <input
+                    type="password"
+                    placeholder="UI Passkey..."
+                    value={passkey}
+                    onChange={(e) => setPasskey(e.target.value)}
+                    className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-2xl focus:ring-4 focus:ring-orange-500/10 focus:border-orange-500 outline-none transition-all text-center text-xl font-mono tracking-widest placeholder:tracking-normal placeholder:font-sans placeholder:text-base"
+                    autoFocus
+                  />
+                </div>
+                {loginError && (
+                  <p className="text-red-500 text-sm flex items-center justify-center gap-2 font-semibold bg-red-50 py-2 rounded-lg border border-red-100">
+                    <AlertCircle className="w-4 h-4" /> {loginError}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  className="w-full bg-gray-900 hover:bg-black text-white font-bold py-4 rounded-2xl transition-all shadow-xl hover:shadow-orange-200 hover:-translate-y-0.5 active:translate-y-0"
+                >
+                  Unlock Dashboard
+                </button>
+              </form>
+              <div className="mt-8 pt-6 border-t border-gray-50 text-center">
+                <p className="text-xs text-gray-400 font-medium uppercase tracking-widest">Hugging Face Space Security</p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8 bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
